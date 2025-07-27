@@ -1,0 +1,124 @@
+# Options Backtesting System Configuration
+
+# Database Configuration
+database:
+  type: "sqlite"
+  path: "data/backtest.db"
+  pool_size: 5
+  echo: false
+  # For PostgreSQL (uncomment and configure as needed):
+  # type: "postgresql"
+  # host: "localhost"
+  # port: 5432
+  # username: "backtest_user"
+  # password: "your_password"
+  # path: "backtest_db"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+  file: "logs/backtest.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+  console_output: true
+
+# Portfolio Configuration
+portfolio:
+  initial_cash: 100000.00
+  commission_per_contract: 1.00
+  commission_per_share: 0.005
+  margin_rate: 0.50
+  max_position_size_pct: 0.10  # 10% max position size
+  max_portfolio_leverage: 2.00
+
+# Risk Management Configuration
+risk:
+  max_position_size_pct: 0.10      # 10% of portfolio
+  max_portfolio_leverage: 2.00
+  stop_loss_pct: 0.20              # 20% stop loss
+  max_drawdown_pct: 0.15           # 15% maximum drawdown
+  var_confidence_level: 0.95       # 95% VaR confidence
+  concentration_limit_pct: 0.25    # 25% max per symbol
+
+# Interactive Brokers Configuration
+ibkr:
+  host: "127.0.0.1"
+  port: 7497                       # TWS paper trading port (7496 for live)
+  client_id: 1
+  timeout: 30
+  enable_logging: true
+  readonly: true                   # Start in read-only mode for safety
+
+# Backtesting Configuration
+backtest:
+  start_date: null                 # Format: YYYY-MM-DD (null = auto-determine)
+  end_date: null                   # Format: YYYY-MM-DD (null = latest available)
+  frequency: "daily"               # daily, hourly, minute
+  slippage_bps: 5                  # Slippage in basis points
+  commission_model: "fixed"        # fixed, percentage
+  fill_model: "midpoint"           # midpoint, aggressive, conservative
+
+# Performance Monitoring Configuration
+performance:
+  benchmark_symbol: "SPY"
+  risk_free_rate: 0.02             # 2% annual risk-free rate
+  business_days_per_year: 252
+  enable_profiling: false
+  memory_monitoring: true
+
+# Strategy-Specific Configuration (examples)
+strategies:
+  sell_put:
+    enabled: true
+    min_dte: 30                    # Minimum days to expiration
+    max_dte: 45                    # Maximum days to expiration
+    delta_target: -0.30            # Target delta for puts
+    profit_target_pct: 0.50        # Close at 50% profit
+    max_loss_pct: 2.00             # Close at 200% loss
+    
+  covered_call:
+    enabled: true
+    min_dte: 30
+    max_dte: 45
+    delta_target: 0.30             # Target delta for calls
+    profit_target_pct: 0.50
+    max_loss_pct: 2.00
+  
+  iron_condor:
+    enabled: false                 # Not implemented yet
+    min_dte: 30
+    max_dte: 45
+    put_delta: -0.20
+    call_delta: 0.20
+    profit_target_pct: 0.50
+    max_loss_pct: 2.00
+
+# Data Quality Configuration
+data_quality:
+  max_bid_ask_spread_pct: 0.10     # 10% max spread
+  min_volume: 10                   # Minimum daily volume
+  min_open_interest: 100           # Minimum open interest for options
+  stale_data_threshold_minutes: 60 # Consider data stale after 1 hour
+  price_change_threshold_pct: 0.20 # Flag price changes > 20%
+
+# Notification Configuration (for future implementation)
+notifications:
+  enabled: false
+  email:
+    smtp_server: null
+    smtp_port: 587
+    username: null
+    password: null
+    recipients: []
+  slack:
+    webhook_url: null
+    channel: "#backtesting"
+
+# Advanced Settings
+advanced:
+  max_memory_usage_mb: 2048        # 2GB memory limit
+  max_cpu_usage_pct: 80            # 80% CPU usage limit
+  cache_size_mb: 512               # 512MB cache size
+  parallel_processing: true
+  max_workers: 4                   # Number of worker threads
