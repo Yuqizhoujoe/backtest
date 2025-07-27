@@ -12,7 +12,7 @@ dependencies = [
     "scipy>=1.10.0",
     "ib-insync>=0.9.86",
     "psycopg2-binary>=2.9.0",
-    "pyyaml>=6.0.0",
+    "pyyaml>=6.0.0"
 ]
 
 [project.optional-dependencies]
@@ -50,12 +50,33 @@ ignore_missing_imports = true
 
 [tool.black]
 line-length = 88
-target-version = ['py39']
+target-version = ["py39"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+  | __pycache__
+  | tests/data
+)/
+'''
 
 [tool.ruff]
 line-length = 88
 target-version = "py39"
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E203", "W503"]
+fixable = ["ALL"]
+unfixable = []
 
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 [tool.coverage.run]
 source = ["src"]
 omit = ["tests/*"]

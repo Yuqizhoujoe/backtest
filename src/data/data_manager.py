@@ -6,28 +6,39 @@ management, CRUD operations, and data integrity maintenance.
 """
 
 import datetime
-import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Union, Tuple
-from decimal import Decimal
+from typing import List, Optional, Dict, Any
 
-from sqlalchemy import create_engine, func, and_, or_, desc, asc
+from sqlalchemy import create_engine, func, and_
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
 from .schemas import (
-    Base, StockContract, OptionContract, StockMarketData, OptionMarketData,
-    Portfolio, Position, Transaction, PortfolioPerformance, BacktestRun,
-    create_additional_indexes, get_table_names
+    Base,
+    StockContract,
+    OptionContract,
+    StockMarketData,
+    OptionMarketData,
+    Portfolio,
+    Position,
+    Transaction,
+    create_additional_indexes,
+    get_table_names,
 )
-from ..core.contracts import OptionContract as CoreOptionContract, StockContract as CoreStockContract
+from ..core.contracts import (
+    OptionContract as CoreOptionContract,
+    StockContract as CoreStockContract,
+)
 from ..core.position import Position as CorePosition, Transaction as CoreTransaction
 from ..core.portfolio import Portfolio as CorePortfolio
 from ..core.exceptions import (
-    DatabaseError, DatabaseConnectionError, DatabaseIntegrityError,
-    DatabaseOperationError, DataNotFoundError
+    DatabaseError,
+    DatabaseConnectionError,
+    DatabaseIntegrityError,
+    DatabaseOperationError,
+    DataNotFoundError,
 )
 from ..utils.logger import get_logger
 from ..utils.config import get_config
@@ -36,46 +47,45 @@ from ..utils.config import get_config
 class DatabaseManager:
     """
     Comprehensive database manager for the backtesting system.
-    
+
     This class handles all database operations including connection management,
     CRUD operations, data validation, and performance optimization.
     """
-    
+
     def __init__(self, connection_string: Optional[str] = None, echo: bool = False):
         """
         Initialize the database manager.
-        
+
         Args:
             connection_string: Database connection string
             echo: Whether to echo SQL statements (for debugging)
         """
-        self.logger = get_logger('data.manager')
-        
+        self.logger = get_logger("data.manager")
+
         # Get connection string from config if not provided
         if connection_string is None:
             config = get_config()
             connection_string = config.database.connection_string
             echo = config.database.echo
-        
+
         self.connection_string = connection_string
         self.echo = echo
-        
+
         # Create engine with appropriate settings
         engine_kwargs = {
-            'echo': echo,
-            'pool_pre_ping': True,  # Verify connections before use
+            "echo": echo,
+            "pool_pre_ping": True,  # Verify connections before use
         }
-        
+
         # SQLite-specific settings
-        if connection_string.startswith('sqlite'):
-            engine_kwargs.update({
-                'poolclass': StaticPool,
-                'connect_args': {
-                    'check_same_thread': False,
-                    'timeout': 30
+        if connection_string.startswith("sqlite"):
+            engine_kwargs.update(
+                {
+                    "poolclass": StaticPool,
+                    "connect_args": {"check_same_thread": False, "timeout": 30},
                 }
-            })
-        
+            )
+
         try:
             self.engine = create_engine(connection_string, **engine_kwargs)
             self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -83,11 +93,11 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to create database engine: {e}")
             raise DatabaseConnectionError(f"Failed to create database engine: {e}")
-    
+
     def initialize_database(self, drop_existing: bool = False) -> None:
         """
         Initialize the database schema.
-        
+
         Args:
             drop_existing: Whether to drop existing tables first
         """
@@ -95,29 +105,29 @@ class DatabaseManager:
             if drop_existing:
                 self.logger.warning("Dropping existing database tables")
                 Base.metadata.drop_all(bind=self.engine)
-            
+
             # Create all tables
             Base.metadata.create_all(bind=self.engine)
-            
+
             # Create additional indexes
             create_additional_indexes(self.engine)
-            
+
             # Create data directories if using SQLite
-            if self.connection_string.startswith('sqlite'):
-                db_path = self.connection_string.replace('sqlite:///', '')
+            if self.connection_string.startswith("sqlite"):
+                db_path = self.connection_string.replace("sqlite:///", "")
                 Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-            
+
             self.logger.info("Database schema initialized successfully")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize database: {e}")
             raise DatabaseError(f"Failed to initialize database: {e}")
-    
+
     @contextmanager
     def get_session(self):
         """
         Get a database session with automatic cleanup.
-        
+
         Yields:
             SQLAlchemy session
         """
@@ -131,11 +141,11 @@ class DatabaseManager:
             raise
         finally:
             session.close()
-    
+
     def test_connection(self) -> bool:
         """
         Test database connection.
-        
+
         Returns:
             True if connection successful, False otherwise
         """
@@ -147,24 +157,28 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Database connection test failed: {e}")
             return False
-    
+
     # Stock Contract Operations
-    
+
     def save_stock_contract(self, contract: CoreStockContract) -> int:
         """
         Save a stock contract to the database.
-        
+
         Args:
             contract: Stock contract to save
-            
+
         Returns:
             Database ID of the saved contract
         """
         try:
             with self.get_session() as session:
                 # Check if contract already exists
-                existing = session.query(StockContract).filter_by(symbol=contract.symbol).first()
-                
+                existing = (
+                    session.query(StockContract)
+                    .filter_by(symbol=contract.symbol)
+                    .first()
+                )
+
                 if existing:
                     # Update existing contract
                     self._update_stock_contract_from_core(existing, contract)
@@ -177,133 +191,159 @@ class DatabaseManager:
                     session.flush()  # Get the ID
                     contract_id = db_contract.id
                     self.logger.debug(f"Created stock contract: {contract.symbol}")
-                
+
                 return contract_id
-                
+
         except IntegrityError as e:
             raise DatabaseIntegrityError(f"Failed to save stock contract: {e}")
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save stock contract: {e}")
-    
+
     def get_stock_contract(self, symbol: str) -> Optional[CoreStockContract]:
         """
         Get a stock contract by symbol.
-        
+
         Args:
             symbol: Stock symbol
-            
+
         Returns:
             Stock contract or None if not found
         """
         try:
             with self.get_session() as session:
-                db_contract = session.query(StockContract).filter_by(symbol=symbol.upper()).first()
-                
+                db_contract = (
+                    session.query(StockContract)
+                    .filter_by(symbol=symbol.upper())
+                    .first()
+                )
+
                 if db_contract:
                     return self._create_core_stock_contract(db_contract)
                 return None
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get stock contract: {e}")
-    
+
     def get_all_stock_contracts(self) -> List[CoreStockContract]:
         """Get all stock contracts."""
         try:
             with self.get_session() as session:
                 db_contracts = session.query(StockContract).all()
-                return [self._create_core_stock_contract(db_contract) for db_contract in db_contracts]
-                
+                return [
+                    self._create_core_stock_contract(db_contract)
+                    for db_contract in db_contracts
+                ]
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get stock contracts: {e}")
-    
+
     # Option Contract Operations
-    
+
     def save_option_contract(self, contract: CoreOptionContract) -> int:
         """
         Save an option contract to the database.
-        
+
         Args:
             contract: Option contract to save
-            
+
         Returns:
             Database ID of the saved contract
         """
         try:
             with self.get_session() as session:
                 # Check if contract already exists
-                existing = session.query(OptionContract).filter_by(contract_id=contract.contract_id).first()
-                
+                existing = (
+                    session.query(OptionContract)
+                    .filter_by(contract_id=contract.contract_id)
+                    .first()
+                )
+
                 if existing:
                     # Update existing contract
                     self._update_option_contract_from_core(existing, contract)
                     contract_id = existing.id
-                    self.logger.debug(f"Updated option contract: {contract.contract_id}")
+                    self.logger.debug(
+                        f"Updated option contract: {contract.contract_id}"
+                    )
                 else:
                     # Create new contract
                     db_contract = self._create_option_contract_from_core(contract)
                     session.add(db_contract)
                     session.flush()  # Get the ID
                     contract_id = db_contract.id
-                    self.logger.debug(f"Created option contract: {contract.contract_id}")
-                
+                    self.logger.debug(
+                        f"Created option contract: {contract.contract_id}"
+                    )
+
                 return contract_id
-                
+
         except IntegrityError as e:
             raise DatabaseIntegrityError(f"Failed to save option contract: {e}")
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save option contract: {e}")
-    
+
     def get_option_contract(self, contract_id: str) -> Optional[CoreOptionContract]:
         """
         Get an option contract by contract ID.
-        
+
         Args:
             contract_id: Option contract ID
-            
+
         Returns:
             Option contract or None if not found
         """
         try:
             with self.get_session() as session:
-                db_contract = session.query(OptionContract).filter_by(contract_id=contract_id).first()
-                
+                db_contract = (
+                    session.query(OptionContract)
+                    .filter_by(contract_id=contract_id)
+                    .first()
+                )
+
                 if db_contract:
                     return self._create_core_option_contract(db_contract)
                 return None
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get option contract: {e}")
-    
-    def get_options_by_symbol(self, symbol: str, expiration_date: Optional[datetime.date] = None) -> List[CoreOptionContract]:
+
+    def get_options_by_symbol(
+        self, symbol: str, expiration_date: Optional[datetime.date] = None
+    ) -> List[CoreOptionContract]:
         """
         Get option contracts by symbol and optional expiration.
-        
+
         Args:
             symbol: Underlying symbol
             expiration_date: Optional expiration date filter
-            
+
         Returns:
             List of option contracts
         """
         try:
             with self.get_session() as session:
                 query = session.query(OptionContract).filter_by(symbol=symbol.upper())
-                
+
                 if expiration_date:
                     query = query.filter_by(expiration=expiration_date)
-                
+
                 db_contracts = query.all()
-                return [self._create_core_option_contract(db_contract) for db_contract in db_contracts]
-                
+                return [
+                    self._create_core_option_contract(db_contract)
+                    for db_contract in db_contracts
+                ]
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get option contracts: {e}")
-    
+
     # Market Data Operations
-    
-    def save_stock_market_data(self, symbol: str, timestamp: datetime.datetime, data: Dict[str, Any]) -> None:
+
+    def save_stock_market_data(
+        self, symbol: str, timestamp: datetime.datetime, data: Dict[str, Any]
+    ) -> None:
         """
         Save stock market data.
-        
+
         Args:
             symbol: Stock symbol
             timestamp: Data timestamp
@@ -312,46 +352,52 @@ class DatabaseManager:
         try:
             with self.get_session() as session:
                 # Get stock contract
-                stock_contract = session.query(StockContract).filter_by(symbol=symbol.upper()).first()
+                stock_contract = (
+                    session.query(StockContract)
+                    .filter_by(symbol=symbol.upper())
+                    .first()
+                )
                 if not stock_contract:
                     raise DataNotFoundError(f"Stock contract not found: {symbol}")
-                
+
                 # Create market data record
                 market_data = StockMarketData(
                     stock_contract_id=stock_contract.id,
                     timestamp=timestamp,
-                    open_price=data.get('open'),
-                    high_price=data.get('high'),
-                    low_price=data.get('low'),
-                    close_price=data.get('close'),
-                    volume=data.get('volume'),
-                    bid=data.get('bid'),
-                    ask=data.get('ask')
+                    open_price=data.get("open"),
+                    high_price=data.get("high"),
+                    low_price=data.get("low"),
+                    close_price=data.get("close"),
+                    volume=data.get("volume"),
+                    bid=data.get("bid"),
+                    ask=data.get("ask"),
                 )
-                
+
                 session.merge(market_data)  # Use merge to handle duplicates
-                
+
                 # Update stock contract with latest data
-                if 'bid' in data:
-                    stock_contract.bid = data['bid']
-                if 'ask' in data:
-                    stock_contract.ask = data['ask']
-                if 'close' in data:
-                    stock_contract.last = data['close']
-                if 'volume' in data:
-                    stock_contract.volume = data['volume']
-                
+                if "bid" in data:
+                    stock_contract.bid = data["bid"]
+                if "ask" in data:
+                    stock_contract.ask = data["ask"]
+                if "close" in data:
+                    stock_contract.last = data["close"]
+                if "volume" in data:
+                    stock_contract.volume = data["volume"]
+
                 stock_contract.last_data_update = timestamp
-                
+
                 self.logger.debug(f"Saved market data for {symbol} at {timestamp}")
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save stock market data: {e}")
-    
-    def save_option_market_data(self, contract_id: str, timestamp: datetime.datetime, data: Dict[str, Any]) -> None:
+
+    def save_option_market_data(
+        self, contract_id: str, timestamp: datetime.datetime, data: Dict[str, Any]
+    ) -> None:
         """
         Save option market data.
-        
+
         Args:
             contract_id: Option contract ID
             timestamp: Data timestamp
@@ -360,92 +406,121 @@ class DatabaseManager:
         try:
             with self.get_session() as session:
                 # Get option contract
-                option_contract = session.query(OptionContract).filter_by(contract_id=contract_id).first()
+                option_contract = (
+                    session.query(OptionContract)
+                    .filter_by(contract_id=contract_id)
+                    .first()
+                )
                 if not option_contract:
                     raise DataNotFoundError(f"Option contract not found: {contract_id}")
-                
+
                 # Create market data record
                 market_data = OptionMarketData(
                     option_contract_id=option_contract.id,
                     timestamp=timestamp,
-                    bid=data.get('bid'),
-                    ask=data.get('ask'),
-                    last=data.get('last'),
-                    volume=data.get('volume'),
-                    open_interest=data.get('open_interest'),
-                    delta=data.get('delta'),
-                    gamma=data.get('gamma'),
-                    theta=data.get('theta'),
-                    vega=data.get('vega'),
-                    rho=data.get('rho'),
-                    implied_volatility=data.get('implied_volatility'),
-                    underlying_price=data.get('underlying_price')
+                    bid=data.get("bid"),
+                    ask=data.get("ask"),
+                    last=data.get("last"),
+                    volume=data.get("volume"),
+                    open_interest=data.get("open_interest"),
+                    delta=data.get("delta"),
+                    gamma=data.get("gamma"),
+                    theta=data.get("theta"),
+                    vega=data.get("vega"),
+                    rho=data.get("rho"),
+                    implied_volatility=data.get("implied_volatility"),
+                    underlying_price=data.get("underlying_price"),
                 )
-                
+
                 session.merge(market_data)  # Use merge to handle duplicates
-                
+
                 # Update option contract with latest data
-                for field in ['bid', 'ask', 'last', 'volume', 'open_interest',
-                             'delta', 'gamma', 'theta', 'vega', 'rho', 'implied_volatility']:
+                for field in [
+                    "bid",
+                    "ask",
+                    "last",
+                    "volume",
+                    "open_interest",
+                    "delta",
+                    "gamma",
+                    "theta",
+                    "vega",
+                    "rho",
+                    "implied_volatility",
+                ]:
                     if field in data:
                         setattr(option_contract, field, data[field])
-                
+
                 option_contract.last_data_update = timestamp
-                
+
                 self.logger.debug(f"Saved market data for {contract_id} at {timestamp}")
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save option market data: {e}")
-    
-    def get_stock_market_data_range(self, symbol: str, start_date: datetime.datetime, 
-                                   end_date: datetime.datetime) -> List[Dict[str, Any]]:
+
+    def get_stock_market_data_range(
+        self, symbol: str, start_date: datetime.datetime, end_date: datetime.datetime
+    ) -> List[Dict[str, Any]]:
         """
         Get stock market data for a date range.
-        
+
         Args:
             symbol: Stock symbol
             start_date: Start date
             end_date: End date
-            
+
         Returns:
             List of market data records
         """
         try:
             with self.get_session() as session:
-                stock_contract = session.query(StockContract).filter_by(symbol=symbol.upper()).first()
+                stock_contract = (
+                    session.query(StockContract)
+                    .filter_by(symbol=symbol.upper())
+                    .first()
+                )
                 if not stock_contract:
                     raise DataNotFoundError(f"Stock contract not found: {symbol}")
-                
-                market_data = session.query(StockMarketData).filter(
-                    and_(
-                        StockMarketData.stock_contract_id == stock_contract.id,
-                        StockMarketData.timestamp >= start_date,
-                        StockMarketData.timestamp <= end_date
+
+                market_data = (
+                    session.query(StockMarketData)
+                    .filter(
+                        and_(
+                            StockMarketData.stock_contract_id == stock_contract.id,
+                            StockMarketData.timestamp >= start_date,
+                            StockMarketData.timestamp <= end_date,
+                        )
                     )
-                ).order_by(StockMarketData.timestamp).all()
-                
+                    .order_by(StockMarketData.timestamp)
+                    .all()
+                )
+
                 return [self._stock_market_data_to_dict(data) for data in market_data]
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get stock market data: {e}")
-    
+
     # Portfolio Operations
-    
+
     def save_portfolio(self, portfolio: CorePortfolio) -> int:
         """
         Save a portfolio to the database.
-        
+
         Args:
             portfolio: Portfolio to save
-            
+
         Returns:
             Database ID of the saved portfolio
         """
         try:
             with self.get_session() as session:
                 # Check if portfolio already exists
-                existing = session.query(Portfolio).filter_by(portfolio_id=portfolio.portfolio_id).first()
-                
+                existing = (
+                    session.query(Portfolio)
+                    .filter_by(portfolio_id=portfolio.portfolio_id)
+                    .first()
+                )
+
                 if existing:
                     # Update existing portfolio
                     self._update_portfolio_from_core(existing, portfolio)
@@ -458,51 +533,59 @@ class DatabaseManager:
                     session.flush()  # Get the ID
                     portfolio_id = db_portfolio.id
                     self.logger.debug(f"Created portfolio: {portfolio.portfolio_id}")
-                
+
                 return portfolio_id
-                
+
         except IntegrityError as e:
             raise DatabaseIntegrityError(f"Failed to save portfolio: {e}")
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save portfolio: {e}")
-    
+
     def get_portfolio(self, portfolio_id: str) -> Optional[CorePortfolio]:
         """
         Get a portfolio by ID.
-        
+
         Args:
             portfolio_id: Portfolio ID
-            
+
         Returns:
             Portfolio or None if not found
         """
         try:
             with self.get_session() as session:
-                db_portfolio = session.query(Portfolio).filter_by(portfolio_id=portfolio_id).first()
-                
+                db_portfolio = (
+                    session.query(Portfolio)
+                    .filter_by(portfolio_id=portfolio_id)
+                    .first()
+                )
+
                 if db_portfolio:
                     return self._create_core_portfolio(db_portfolio, session)
                 return None
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get portfolio: {e}")
-    
+
     def save_position(self, position: CorePosition, portfolio_db_id: int) -> int:
         """
         Save a position to the database.
-        
+
         Args:
             position: Position to save
             portfolio_db_id: Database ID of the portfolio
-            
+
         Returns:
             Database ID of the saved position
         """
         try:
             with self.get_session() as session:
                 # Check if position already exists
-                existing = session.query(Position).filter_by(position_id=position.position_id).first()
-                
+                existing = (
+                    session.query(Position)
+                    .filter_by(position_id=position.position_id)
+                    .first()
+                )
+
                 if existing:
                     # Update existing position
                     self._update_position_from_core(existing, position)
@@ -510,48 +593,56 @@ class DatabaseManager:
                     self.logger.debug(f"Updated position: {position.position_id}")
                 else:
                     # Create new position
-                    db_position = self._create_position_from_core(position, portfolio_db_id)
+                    db_position = self._create_position_from_core(
+                        position, portfolio_db_id
+                    )
                     session.add(db_position)
                     session.flush()  # Get the ID
                     position_id = db_position.id
                     self.logger.debug(f"Created position: {position.position_id}")
-                
+
                 return position_id
-                
+
         except IntegrityError as e:
             raise DatabaseIntegrityError(f"Failed to save position: {e}")
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save position: {e}")
-    
-    def save_transaction(self, transaction: CoreTransaction, position_db_id: int, portfolio_db_id: int) -> int:
+
+    def save_transaction(
+        self, transaction: CoreTransaction, position_db_id: int, portfolio_db_id: int
+    ) -> int:
         """
         Save a transaction to the database.
-        
+
         Args:
             transaction: Transaction to save
             position_db_id: Database ID of the position
             portfolio_db_id: Database ID of the portfolio
-            
+
         Returns:
             Database ID of the saved transaction
         """
         try:
             with self.get_session() as session:
-                db_transaction = self._create_transaction_from_core(transaction, position_db_id, portfolio_db_id)
+                db_transaction = self._create_transaction_from_core(
+                    transaction, position_db_id, portfolio_db_id
+                )
                 session.add(db_transaction)
                 session.flush()  # Get the ID
-                
+
                 self.logger.debug(f"Created transaction: {transaction.transaction_id}")
                 return db_transaction.id
-                
+
         except IntegrityError as e:
             raise DatabaseIntegrityError(f"Failed to save transaction: {e}")
         except Exception as e:
             raise DatabaseOperationError(f"Failed to save transaction: {e}")
-    
+
     # Helper methods for object conversion
-    
-    def _create_stock_contract_from_core(self, contract: CoreStockContract) -> StockContract:
+
+    def _create_stock_contract_from_core(
+        self, contract: CoreStockContract
+    ) -> StockContract:
         """Create database StockContract from core StockContract."""
         return StockContract(
             symbol=contract.symbol,
@@ -565,10 +656,12 @@ class DatabaseManager:
             pe_ratio=contract.pe_ratio,
             dividend_yield=contract.dividend_yield,
             status=contract.status.value,
-            last_data_update=contract.last_update
+            last_data_update=contract.last_update,
         )
-    
-    def _update_stock_contract_from_core(self, db_contract: StockContract, contract: CoreStockContract) -> None:
+
+    def _update_stock_contract_from_core(
+        self, db_contract: StockContract, contract: CoreStockContract
+    ) -> None:
         """Update database StockContract from core StockContract."""
         db_contract.exchange = contract.exchange
         db_contract.currency = contract.currency
@@ -581,11 +674,13 @@ class DatabaseManager:
         db_contract.dividend_yield = contract.dividend_yield
         db_contract.status = contract.status.value
         db_contract.last_data_update = contract.last_update
-    
-    def _create_core_stock_contract(self, db_contract: StockContract) -> CoreStockContract:
+
+    def _create_core_stock_contract(
+        self, db_contract: StockContract
+    ) -> CoreStockContract:
         """Create core StockContract from database StockContract."""
         from ..core.contracts import ContractStatus
-        
+
         contract = CoreStockContract(
             symbol=db_contract.symbol,
             exchange=db_contract.exchange,
@@ -598,11 +693,13 @@ class DatabaseManager:
             pe_ratio=db_contract.pe_ratio,
             dividend_yield=db_contract.dividend_yield,
             last_update=db_contract.last_data_update,
-            status=ContractStatus(db_contract.status)
+            status=ContractStatus(db_contract.status),
         )
         return contract
-    
-    def _create_option_contract_from_core(self, contract: CoreOptionContract) -> OptionContract:
+
+    def _create_option_contract_from_core(
+        self, contract: CoreOptionContract
+    ) -> OptionContract:
         """Create database OptionContract from core OptionContract."""
         return OptionContract(
             contract_id=contract.contract_id,
@@ -625,10 +722,12 @@ class DatabaseManager:
             rho=contract.rho,
             implied_volatility=contract.implied_volatility,
             status=contract.status.value,
-            last_data_update=contract.last_update
+            last_data_update=contract.last_update,
         )
-    
-    def _update_option_contract_from_core(self, db_contract: OptionContract, contract: CoreOptionContract) -> None:
+
+    def _update_option_contract_from_core(
+        self, db_contract: OptionContract, contract: CoreOptionContract
+    ) -> None:
         """Update database OptionContract from core OptionContract."""
         db_contract.bid = contract.bid
         db_contract.ask = contract.ask
@@ -643,11 +742,13 @@ class DatabaseManager:
         db_contract.implied_volatility = contract.implied_volatility
         db_contract.status = contract.status.value
         db_contract.last_data_update = contract.last_update
-    
-    def _create_core_option_contract(self, db_contract: OptionContract) -> CoreOptionContract:
+
+    def _create_core_option_contract(
+        self, db_contract: OptionContract
+    ) -> CoreOptionContract:
         """Create core OptionContract from database OptionContract."""
         from ..core.contracts import OptionType, ContractStatus
-        
+
         contract = CoreOptionContract(
             symbol=db_contract.symbol,
             strike=db_contract.strike,
@@ -668,12 +769,12 @@ class DatabaseManager:
             rho=db_contract.rho,
             implied_volatility=db_contract.implied_volatility,
             last_update=db_contract.last_data_update,
-            status=ContractStatus(db_contract.status)
+            status=ContractStatus(db_contract.status),
         )
         # Set the private contract_id field
         contract._contract_id = db_contract.contract_id
         return contract
-    
+
     def _create_portfolio_from_core(self, portfolio: CorePortfolio) -> Portfolio:
         """Create database Portfolio from core Portfolio."""
         return Portfolio(
@@ -688,10 +789,12 @@ class DatabaseManager:
             margin_used=portfolio.margin_used,
             margin_available=portfolio.margin_available,
             max_position_size_pct=portfolio.max_position_size_pct,
-            max_portfolio_leverage=portfolio.max_portfolio_leverage
+            max_portfolio_leverage=portfolio.max_portfolio_leverage,
         )
-    
-    def _update_portfolio_from_core(self, db_portfolio: Portfolio, portfolio: CorePortfolio) -> None:
+
+    def _update_portfolio_from_core(
+        self, db_portfolio: Portfolio, portfolio: CorePortfolio
+    ) -> None:
         """Update database Portfolio from core Portfolio."""
         db_portfolio.name = portfolio.name
         db_portfolio.current_cash = portfolio.cash
@@ -703,16 +806,19 @@ class DatabaseManager:
         db_portfolio.margin_available = portfolio.margin_available
         db_portfolio.max_position_size_pct = portfolio.max_position_size_pct
         db_portfolio.max_portfolio_leverage = portfolio.max_portfolio_leverage
-    
-    def _create_core_portfolio(self, db_portfolio: Portfolio, session: Session) -> CorePortfolio:
+
+    def _create_core_portfolio(
+        self, db_portfolio: Portfolio, session: Session
+    ) -> CorePortfolio:
         """Create core Portfolio from database Portfolio."""
-        # This is a simplified version - in practice, you'd need to load all positions and transactions
+        # This is a simplified version - in practice, you'd need to load all
+        # positions and transactions
         portfolio = CorePortfolio(
             initial_cash=db_portfolio.initial_cash,
             name=db_portfolio.name,
-            portfolio_id=db_portfolio.portfolio_id
+            portfolio_id=db_portfolio.portfolio_id,
         )
-        
+
         # Update portfolio state
         portfolio.cash = db_portfolio.current_cash
         portfolio.total_realized_pnl = db_portfolio.total_realized_pnl
@@ -723,17 +829,23 @@ class DatabaseManager:
         portfolio.margin_available = db_portfolio.margin_available
         portfolio.max_position_size_pct = db_portfolio.max_position_size_pct
         portfolio.max_portfolio_leverage = db_portfolio.max_portfolio_leverage
-        
+
         return portfolio
-    
-    def _create_position_from_core(self, position: CorePosition, portfolio_db_id: int) -> Position:
+
+    def _create_position_from_core(
+        self, position: CorePosition, portfolio_db_id: int
+    ) -> Position:
         """Create database Position from core Position."""
         from ..core.contracts import OptionContract as CoreOptionContract
-        
+
         return Position(
             position_id=position.position_id,
             portfolio_id=portfolio_db_id,
-            contract_type="option" if isinstance(position.contract, CoreOptionContract) else "stock",
+            contract_type=(
+                "option"
+                if isinstance(position.contract, CoreOptionContract)
+                else "stock"
+            ),
             contract_symbol=position.contract.symbol,
             contract_id=position.contract.contract_id,
             initial_quantity=position.initial_quantity,
@@ -746,10 +858,14 @@ class DatabaseManager:
             maintenance_margin=position.maintenance_margin,
             status=position.status.value,
             side=position.side.value,
-            closed_at=None if position.status.value != "CLOSED" else datetime.datetime.now()
+            closed_at=(
+                None if position.status.value != "CLOSED" else datetime.datetime.now()
+            ),
         )
-    
-    def _update_position_from_core(self, db_position: Position, position: CorePosition) -> None:
+
+    def _update_position_from_core(
+        self, db_position: Position, position: CorePosition
+    ) -> None:
         """Update database Position from core Position."""
         db_position.current_quantity = position.current_quantity
         db_position.realized_pnl = position.realized_pnl
@@ -758,8 +874,10 @@ class DatabaseManager:
         db_position.side = position.side.value
         if position.status.value == "CLOSED" and db_position.closed_at is None:
             db_position.closed_at = datetime.datetime.now()
-    
-    def _create_transaction_from_core(self, transaction: CoreTransaction, position_db_id: int, portfolio_db_id: int) -> Transaction:
+
+    def _create_transaction_from_core(
+        self, transaction: CoreTransaction, position_db_id: int, portfolio_db_id: int
+    ) -> Transaction:
         """Create database Transaction from core Transaction."""
         return Transaction(
             transaction_id=transaction.transaction_id,
@@ -772,82 +890,88 @@ class DatabaseManager:
             commission=transaction.commission,
             fees=transaction.fees,
             gross_amount=transaction.gross_amount,
-            net_amount=transaction.net_amount
+            net_amount=transaction.net_amount,
         )
-    
+
     def _stock_market_data_to_dict(self, data: StockMarketData) -> Dict[str, Any]:
         """Convert database StockMarketData to dictionary."""
         return {
-            'timestamp': data.timestamp,
-            'open': float(data.open_price) if data.open_price else None,
-            'high': float(data.high_price) if data.high_price else None,
-            'low': float(data.low_price) if data.low_price else None,
-            'close': float(data.close_price) if data.close_price else None,
-            'volume': data.volume,
-            'bid': float(data.bid) if data.bid else None,
-            'ask': float(data.ask) if data.ask else None
+            "timestamp": data.timestamp,
+            "open": float(data.open_price) if data.open_price else None,
+            "high": float(data.high_price) if data.high_price else None,
+            "low": float(data.low_price) if data.low_price else None,
+            "close": float(data.close_price) if data.close_price else None,
+            "volume": data.volume,
+            "bid": float(data.bid) if data.bid else None,
+            "ask": float(data.ask) if data.ask else None,
         }
-    
+
     # Utility methods
-    
+
     def get_database_info(self) -> Dict[str, Any]:
         """Get database information and statistics."""
         try:
             with self.get_session() as session:
                 info = {
-                    'connection_string': self.connection_string.replace(r'password=\w+', 'password=***'),
-                    'table_count': len(get_table_names()),
-                    'tables': {}
+                    "connection_string": self.connection_string.replace(
+                        r"password=\w+", "password=***"
+                    ),
+                    "table_count": len(get_table_names()),
+                    "tables": {},
                 }
-                
+
                 # Get record counts for each table
                 for table_name in get_table_names():
                     try:
-                        table_class = globals().get(table_name.title().replace('_', ''))
+                        table_class = globals().get(table_name.title().replace("_", ""))
                         if table_class:
                             count = session.query(table_class).count()
-                            info['tables'][table_name] = count
+                            info["tables"][table_name] = count
                     except Exception:
-                        info['tables'][table_name] = 'Error counting records'
-                
+                        info["tables"][table_name] = "Error counting records"
+
                 return info
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to get database info: {e}")
-    
+
     def cleanup_old_data(self, days_to_keep: int = 365) -> Dict[str, int]:
         """
         Clean up old market data to save space.
-        
+
         Args:
             days_to_keep: Number of days of data to keep
-            
+
         Returns:
             Dictionary with counts of deleted records
         """
         cutoff_date = datetime.datetime.now() - datetime.timedelta(days=days_to_keep)
         deleted_counts = {}
-        
+
         try:
             with self.get_session() as session:
                 # Delete old stock market data
-                stock_deleted = session.query(StockMarketData).filter(
-                    StockMarketData.timestamp < cutoff_date
-                ).delete()
-                deleted_counts['stock_market_data'] = stock_deleted
-                
+                stock_deleted = (
+                    session.query(StockMarketData)
+                    .filter(StockMarketData.timestamp < cutoff_date)
+                    .delete()
+                )
+                deleted_counts["stock_market_data"] = stock_deleted
+
                 # Delete old option market data
-                option_deleted = session.query(OptionMarketData).filter(
-                    OptionMarketData.timestamp < cutoff_date
-                ).delete()
-                deleted_counts['option_market_data'] = option_deleted
-                
+                option_deleted = (
+                    session.query(OptionMarketData)
+                    .filter(OptionMarketData.timestamp < cutoff_date)
+                    .delete()
+                )
+                deleted_counts["option_market_data"] = option_deleted
+
                 self.logger.info(f"Cleaned up old data: {deleted_counts}")
                 return deleted_counts
-                
+
         except Exception as e:
             raise DatabaseOperationError(f"Failed to cleanup old data: {e}")
-    
+
     def close(self) -> None:
         """Close database connections."""
         try:
@@ -864,35 +988,35 @@ _db_manager: Optional[DatabaseManager] = None
 def get_database_manager(connection_string: Optional[str] = None) -> DatabaseManager:
     """
     Get the global database manager instance.
-    
+
     Args:
         connection_string: Database connection string (only used on first call)
-        
+
     Returns:
         DatabaseManager instance
     """
     global _db_manager
-    
+
     if _db_manager is None:
         _db_manager = DatabaseManager(connection_string)
-    
+
     return _db_manager
 
 
 if __name__ == "__main__":
     # Test the database manager
     db = DatabaseManager("sqlite:///test_backtest.db")
-    
+
     # Initialize database
     db.initialize_database(drop_existing=True)
-    
+
     # Test connection
     if db.test_connection():
         print("Database connection successful!")
-        
+
         # Get database info
         info = db.get_database_info()
         print(f"Database info: {info}")
-    
+
     # Clean up
     db.close()

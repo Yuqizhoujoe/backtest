@@ -30,7 +30,9 @@ uv run pytest tests/integration/       # Integration tests
 uv run pytest --cov=src               # Coverage report
 
 # Code Quality
-uv run black src/                     # Code formatting
+uv run ruff format src/               # Code formatting
+uv run ruff check src/                # Linting
+uv run ruff check --fix src/          # Auto-fix linting issues
 uv run mypy src/                      # Type checking
 uv run pre-commit run --all-files     # Run all quality checks
 
