@@ -30,7 +30,9 @@ uv run pytest tests/integration/       # Integration tests
 uv run pytest --cov=src               # Coverage report
 
 # Code Quality
-uv run black src/                     # Code formatting
+uv run black src/ tests/              # Code formatting
+uv run ruff check src/ tests/         # Linting
+uv run ruff check --fix src/ tests/   # Auto-fix linting issues
 uv run mypy src/                      # Type checking
 uv run pre-commit run --all-files     # Run all quality checks
 
@@ -46,29 +48,34 @@ uv run python scripts/analyze_results.py    # Analyze results
 The system will follow a modular, event-driven architecture with clear separation of concerns:
 
 ### Core Layer
+
 - **contracts.py**: OptionContract and StockContract classes with pricing models
 - **position.py**: Position tracking and P&L calculations
 - **portfolio.py**: Portfolio state management and risk tracking
 - **exceptions.py**: Custom exception hierarchy
 
 ### Data Layer
+
 - **ibkr_fetcher.py**: IBKR API integration with rate limiting and error handling
 - **data_manager.py**: Database operations and schema management
 - **data_validator.py**: Data quality checks and cleaning
 - **simulators.py**: Test data generation for edge cases
 
 ### Strategy Framework
+
 - **base_strategy.py**: Abstract strategy interface with signal generation
 - **sell_put.py / covered_call.py**: Core strategy implementations
 - **strategy_factory.py**: Configuration-driven strategy creation
 
 ### Backtesting Engine
+
 - **engine.py**: Event-driven backtesting orchestrator
 - **simulator.py**: Market simulation with multi-timeframe support
 - **execution.py**: Order execution modeling with slippage and liquidity constraints
 - **risk_manager.py**: Portfolio risk controls and margin requirements
 
 ### Analytics
+
 - **performance.py**: Returns, Sharpe/Sortino ratios, risk metrics
 - **greeks.py**: Black-Scholes implementation with Greeks calculations
 - **reports.py**: Automated report generation (PDF/HTML)
