@@ -87,64 +87,69 @@ uv run pytest tests/
 
 ### Code Formatting and Linting
 
-This project uses **ruff** for both code formatting and linting to maintain consistent code quality and catch potential issues.
+This project uses **[Black](https://black.readthedocs.io/)** for formatting and **[Ruff](https://docs.astral.sh/ruff/)** for linting, auto-fixing, and import sorting.
 
 #### Manual Commands
 
 ```bash
-# Format code with ruff
-uv run ruff format src/
+# Format code
+uv run black src/ tests/
 
-# Check linting with ruff
-uv run ruff check src/
+# Check without changing files (CI mode)
+uv run black --check src/ tests/
 
-# Fix auto-fixable linting issues
-uv run ruff check --fix src/
+# Lint code
+uv run ruff check src/ tests/
 
-# Run both formatting and linting
-uv run ruff format src/ && uv run ruff check src/
+# Auto-fix issues
+uv run ruff check --fix src/ tests/
+
+# Full format and lint cycle
+uv run black src/ tests/ && uv run ruff check --fix src/ tests/
 ```
 
 #### IDE Setup for Auto-Formatting
 
-Configure your IDE to automatically format and lint code:
+Configure your IDE to automatically format and lint code on save.
 
 **VS Code:**
 
-1. Install the Ruff extension (`charliermarsh.ruff`)
-2. Add to your `.vscode/settings.json`:
+1.  Install the **Black Formatter** (`ms-python.black-formatter`) and **Ruff** (`charliermarsh.ruff`) extensions.
+2.  Add to your `.vscode/settings.json`:
 
 ```json
 {
   "[python]": {
     "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.codeActionsOnSave": {
       "source.fixAll.ruff": true,
       "source.organizeImports.ruff": true
-    },
-    "editor.defaultFormatter": "charliermarsh.ruff"
+    }
   },
-  "ruff.enable": true,
   "ruff.lint.enable": true,
-  "ruff.format.enable": true
+  "ruff.format.enable": false
 }
 ```
 
 **PyCharm:**
 
-1. Install the Ruff plugin from the marketplace
-2. Go to File → Settings → Tools → Ruff
-3. Enable "Use ruff" and configure paths as needed
-4. Enable "Format on save" in File → Settings → Tools → Actions on Save
+1.  Install the Ruff plugin from the marketplace.
+2.  Enable Ruff in `Settings/Preferences > Tools > Ruff`.
+3.  Configure Black as an external tool to run on save.
 
 **Pre-commit Hook (Recommended):**
 
 ```bash
 # Install pre-commit hooks to run formatting and linting automatically
-uv add pre-commit
+uv pip install pre-commit
 echo 'repos:
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.5
+    rev: v0.4.6
     hooks:
       - id: ruff
         args: [--fix]
@@ -152,7 +157,7 @@ echo 'repos:
 uv run pre-commit install
 ```
 
-#### Ruff Configuration
+#### Configuration
 
 Ruff is configured via `pyproject.toml`. Key settings include:
 
